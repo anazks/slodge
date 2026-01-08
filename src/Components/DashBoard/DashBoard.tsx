@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { 
   Sun, BatteryCharging, IndianRupee, Leaf, Zap, 
-  Thermometer, Droplets, Wind, AlertTriangle,
-  Home, Settings, Clock, Activity, Bell
+  Thermometer, Droplets, Settings, Activity, Bell
 } from "lucide-react";
 
 interface StatCardProps {
