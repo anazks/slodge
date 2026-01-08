@@ -5,6 +5,24 @@ import {
   Home, Settings, Clock, Activity, Bell
 } from "lucide-react";
 
+interface StatCardProps {
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  color: string;
+}
+
+interface SensorItemProps {
+  name: string;
+  value: string;
+  icon: React.ReactNode;
+}
+
+interface AlertItemProps {
+  type: 'info' | 'warning';
+  message: string;
+}
+
 export default function SOLEdgeDashboard() {
   const [automationMode, setAutomationMode] = useState("saver");
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -167,7 +185,7 @@ export default function SOLEdgeDashboard() {
 }
 
 /* Component: Stat Card */
-function StatCard({ title, value, icon, color }) {
+function StatCard({ title, value, icon, color }: StatCardProps) {
   return (
     <div className={`${color} rounded-lg p-4 border`}>
       <div className="flex items-center justify-between mb-2">
@@ -180,7 +198,7 @@ function StatCard({ title, value, icon, color }) {
 }
 
 /* Component: Sensor Item */
-function SensorItem({ name, value, icon }) {
+function SensorItem({ name, value, icon }: SensorItemProps) {
   return (
     <div className="flex items-center justify-between py-2">
       <div className="flex items-center gap-3">
@@ -195,7 +213,7 @@ function SensorItem({ name, value, icon }) {
 }
 
 /* Component: Alert Item */
-function AlertItem({ type, message }) {
+function AlertItem({ type, message }: AlertItemProps) {
   const typeConfig = {
     info: { icon: "ℹ️", color: "bg-blue-50 text-blue-800" },
     warning: { icon: "⚠️", color: "bg-yellow-50 text-yellow-800" }
