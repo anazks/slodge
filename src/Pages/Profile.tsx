@@ -2,9 +2,9 @@ import { User, Mail, Phone, MapPin, Calendar, Settings, Bell, Shield, LogOut, Ed
 
 export default function Profile() {
   const userProfile = {
-    name: 'Rajesh Kumar',
-    email: 'rajesh.kumar@email.com',
-    phone: '+91 98765 43210',
+    name: 'Ann',
+    email: 'Ann@email.com',
+    phone: '+918606414384',
     location: 'Kochi, Kerala',
     joinedDate: 'January 2024',
     systemSize: '5 kW',
