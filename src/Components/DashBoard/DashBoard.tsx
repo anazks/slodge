@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { 
   Sun, BatteryCharging, IndianRupee, Leaf, Zap, 
-  Thermometer, Droplets, Settings, Activity, Bell
+  Thermometer, Droplets, Settings, Activity, Bell,
+  Gauge
 } from "lucide-react";
-import { db } from '../../Firebase';           // ← adjust path if needed
+import { db } from '../../Firebase';           
 import { ref, onValue } from 'firebase/database';
 
 interface StatCardProps {
@@ -30,10 +31,24 @@ export default function SOLEdgeDashboard() {
   const [sensorData, setSensorData] = useState({
     temperature: "—",
     humidity: "—",
-    battery: 87  // still static for now
+    battery: 87
   });
+  const [predictedConsumption, setPredictedConsumption] = useState<string>("—");
   const [sensorsLoading, setSensorsLoading] = useState(true);
   const [sensorsError, setSensorsError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [deviceIp, setDeviceIp] = useState<string | null>(null);
+
+  // Load IP from localStorage
+  useEffect(() => {
+    const storedIp = localStorage.getItem("deviceIpAddress");
+    console.log("[Profile] Loaded IP from localStorage:", storedIp);
+    if (storedIp) {
+      setDeviceIp(storedIp);
+    } else {
+      console.log("[Profile] No IP found in localStorage");
+    }
+  }, []);
 
   // Clock update
   useEffect(() => {
@@ -43,35 +58,37 @@ export default function SOLEdgeDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Real-time Firebase listener for temperature & humidity
+  // Firebase listener for temperature & humidity
   useEffect(() => {
     const tempRef = ref(db, '/sensorData/temperature');
     const humRef  = ref(db, '/sensorData/humidity');
 
-    // Temperature listener
+    console.log("[Firebase] Starting listeners for /sensorData/temperature and /sensorData/humidity");
+
     const unsubscribeTemp = onValue(tempRef, (snapshot) => {
       const val = snapshot.val();
+      console.log("[Firebase] Temperature raw value:", val);
       setSensorData(prev => ({
         ...prev,
         temperature: typeof val === 'number' ? val.toFixed(1) : "—"
       }));
       setSensorsLoading(false);
     }, (err) => {
-      console.error("Temperature fetch error:", err);
+      console.error("[Firebase] Temperature error:", err.message);
       setSensorsError("Failed to load temperature");
       setSensorsLoading(false);
     });
 
-    // Humidity listener
     const unsubscribeHum = onValue(humRef, (snapshot) => {
       const val = snapshot.val();
+      console.log("[Firebase] Humidity raw value:", val);
       setSensorData(prev => ({
         ...prev,
         humidity: typeof val === 'number' ? Math.round(val) + "%" : "—"
       }));
       setSensorsLoading(false);
     }, (err) => {
-      console.error("Humidity fetch error:", err);
+      console.error("[Firebase] Humidity error:", err.message);
       setSensorsError("Failed to load humidity");
       setSensorsLoading(false);
     });
@@ -81,6 +98,81 @@ export default function SOLEdgeDashboard() {
       unsubscribeHum();
     };
   }, []);
+
+  // Call prediction API when temperature is available + IP exists
+  useEffect(() => {
+    if (!deviceIp) {
+      console.log("[API] Skipping prediction: No device IP set");
+      setApiError("No device IP configured in Profile");
+      return;
+    }
+
+    if (sensorData.temperature === "—" || sensorsLoading) {
+      console.log("[API] Skipping prediction: Temperature not loaded yet");
+      return;
+    }
+
+    const currentTemp = parseFloat(sensorData.temperature);
+    if (isNaN(currentTemp)) {
+      console.log("[API] Skipping prediction: Invalid temperature value");
+      return;
+    }
+
+    const maxTemp = Number((currentTemp + 3).toFixed(1));   // example offset
+    const minTemp = Number((currentTemp - 5).toFixed(1));   // example offset
+
+    console.log(`[API] Preparing request → IP: ${deviceIp}, max_temp: ${maxTemp}, min_temp: ${minTemp}`);
+
+    const fetchPrediction = async () => {
+      try {
+        console.log("[API] Sending POST request to:", `http://${deviceIp}/minimumtemp`);
+
+        const response = await fetch(`${deviceIp}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            max_temp: maxTemp,
+            min_temp: minTemp
+          }),
+        });
+
+        console.log("[API] Response status:", response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status} - ${errorText || response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log("[API] Full response data:", data);
+
+        if (typeof data.predicted_consumption_kwh === 'number') {
+          const value = data.predicted_consumption_kwh.toFixed(2);
+          console.log("[API] Success - Predicted consumption:", value);
+          setPredictedConsumption(value);
+          setApiError(null);
+        } else {
+          console.log("[API] Invalid format - missing predicted_consumption_kwh");
+          setApiError("Invalid response format from device");
+        }
+      } catch (err: any) {
+        console.error("[API] Fetch/Prediction error:", err);
+        const errorMsg = err.message.includes("fetch") 
+          ? `Cannot reach device at ${deviceIp} – check if device is on and endpoint is correct`
+          : err.message;
+        setApiError(errorMsg);
+      }
+    };
+
+    fetchPrediction();
+
+    // Refresh every 10 minutes
+    const interval = setInterval(fetchPrediction, 10 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [deviceIp, sensorData.temperature, sensorsLoading]);
 
   const formattedTime = currentTime.toLocaleTimeString('en-IN', {
     hour: '2-digit',
@@ -113,8 +205,10 @@ export default function SOLEdgeDashboard() {
           {/* Status Bar */}
           <div className="flex gap-4 items-center bg-white rounded-lg p-3 shadow-sm mt-4">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500"></div>
-              <span className="text-sm">System Active</span>
+              <div className={`w-2 h-2 rounded-full ${deviceIp ? "bg-green-500" : "bg-red-500"}`}></div>
+              <span className="text-sm">
+                {deviceIp ? `Device IP: ${deviceIp}` : "No device IP set"}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-purple-500" />
@@ -162,8 +256,8 @@ export default function SOLEdgeDashboard() {
             </p>
           </div>
 
-          {/* Energy Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Energy Stats + Prediction */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <StatCard 
               title="Today's Production" 
               value="28.4 kWh" 
@@ -181,6 +275,12 @@ export default function SOLEdgeDashboard() {
               value="₹8,542" 
               icon={<IndianRupee className="w-5 h-5" />} 
               color="bg-green-50"
+            />
+            <StatCard 
+              title="Predicted Consumption" 
+              value={predictedConsumption === "—" ? "—" : `${predictedConsumption} kWh`} 
+              icon={<Gauge className="w-5 h-5" />} 
+              color={apiError ? "bg-red-50" : "bg-indigo-50"}
             />
           </div>
 
@@ -231,6 +331,13 @@ export default function SOLEdgeDashboard() {
               <AlertItem type="warning" message="Humidity above 80% – check ventilation" />
             </div>
           </div>
+
+          {/* API error message */}
+          {apiError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-center">
+              {apiError} (IP: {deviceIp || "not set"})
+            </div>
+          )}
         </div>
       </div>
     </div>
