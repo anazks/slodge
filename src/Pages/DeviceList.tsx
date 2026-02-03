@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Cpu, Power, Zap, AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
+import { Cpu, Power,Wifi } from 'lucide-react';
 import { db as database } from '../Firebase';
 import { ref, onValue, set } from 'firebase/database';
 
