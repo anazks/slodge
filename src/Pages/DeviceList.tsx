@@ -70,8 +70,8 @@ export default function DeviceList() {
       });
   };
 
-  const totalDevices = devices.length;
-  const onlineDevices = devices.filter(d => d.status === 'online').length;
+ 
+  // const onlineDevices = devices.filter(d => d.status === 'online').length;
   const activeDevices = devices.filter(d => d.isOn).length;
   const totalConsumption = devices
     .reduce((sum, d) => sum + (d.isOn ? d.units : 0), 0)
@@ -95,11 +95,11 @@ export default function DeviceList() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-xl shadow p-4">
             <p className="text-sm text-gray-600">Total Devices</p>
-            <p className="text-2xl font-bold">{totalDevices}</p>
+            <p className="text-2xl font-bold">2</p>
           </div>
           <div className="bg-white rounded-xl shadow p-4">
             <p className="text-sm text-gray-600">Online</p>
-            <p className="text-2xl font-bold">{onlineDevices}</p>
+            <p className="text-2xl font-bold">2</p>
           </div>
           <div className="bg-white rounded-xl shadow p-4">
             <p className="text-sm text-gray-600">Active (ON)</p>

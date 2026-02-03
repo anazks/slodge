@@ -3,6 +3,8 @@ import {
   Sun, BatteryCharging, IndianRupee, Leaf, Zap, 
   Thermometer, Droplets, Settings, Activity, Bell
 } from "lucide-react";
+import { db } from '../../Firebase';           // ← adjust path if needed
+import { ref, onValue } from 'firebase/database';
 
 interface StatCardProps {
   title: string;
@@ -26,26 +28,60 @@ export default function SOLEdgeDashboard() {
   const [automationMode, setAutomationMode] = useState("saver");
   const [currentTime, setCurrentTime] = useState(new Date());
   const [sensorData, setSensorData] = useState({
-    temperature: 28.5,
-    humidity: 65,
-    battery: 87
+    temperature: "—",
+    humidity: "—",
+    battery: 87  // still static for now
   });
+  const [sensorsLoading, setSensorsLoading] = useState(true);
+  const [sensorsError, setSensorsError] = useState<string | null>(null);
 
-  // Update time every second
+  // Clock update
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-      // Simulate sensor data updates
-      setSensorData(prev => ({
-        ...prev,
-        temperature: prev.temperature + (Math.random() - 0.5) * 0.2,
-      }));
-    }, 5000);
-
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Format time
+  // Real-time Firebase listener for temperature & humidity
+  useEffect(() => {
+    const tempRef = ref(db, '/sensorData/temperature');
+    const humRef  = ref(db, '/sensorData/humidity');
+
+    // Temperature listener
+    const unsubscribeTemp = onValue(tempRef, (snapshot) => {
+      const val = snapshot.val();
+      setSensorData(prev => ({
+        ...prev,
+        temperature: typeof val === 'number' ? val.toFixed(1) : "—"
+      }));
+      setSensorsLoading(false);
+    }, (err) => {
+      console.error("Temperature fetch error:", err);
+      setSensorsError("Failed to load temperature");
+      setSensorsLoading(false);
+    });
+
+    // Humidity listener
+    const unsubscribeHum = onValue(humRef, (snapshot) => {
+      const val = snapshot.val();
+      setSensorData(prev => ({
+        ...prev,
+        humidity: typeof val === 'number' ? Math.round(val) + "%" : "—"
+      }));
+      setSensorsLoading(false);
+    }, (err) => {
+      console.error("Humidity fetch error:", err);
+      setSensorsError("Failed to load humidity");
+      setSensorsLoading(false);
+    });
+
+    return () => {
+      unsubscribeTemp();
+      unsubscribeHum();
+    };
+  }, []);
+
   const formattedTime = currentTime.toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
@@ -75,7 +111,7 @@ export default function SOLEdgeDashboard() {
           </div>
 
           {/* Status Bar */}
-          <div className="flex gap-4 items-center bg-white rounded-lg p-3 shadow-sm">
+          <div className="flex gap-4 items-center bg-white rounded-lg p-3 shadow-sm mt-4">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500"></div>
               <span className="text-sm">System Active</span>
@@ -98,21 +134,31 @@ export default function SOLEdgeDashboard() {
             <div className="flex gap-2">
               <button
                 onClick={() => setAutomationMode("saver")}
-                className={`flex-1 p-3 rounded-lg border ${automationMode === "saver" ? "bg-green-50 border-green-300 text-green-700" : "bg-gray-50 border-gray-200"}`}
+                className={`flex-1 p-3 rounded-lg border transition-colors ${
+                  automationMode === "saver" 
+                    ? "bg-green-50 border-green-300 text-green-700 font-medium" 
+                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                }`}
               >
                 <Leaf className="w-4 h-4 mx-auto mb-1" />
                 Saver
               </button>
               <button
                 onClick={() => setAutomationMode("performance")}
-                className={`flex-1 p-3 rounded-lg border ${automationMode === "performance" ? "bg-yellow-50 border-yellow-300 text-yellow-700" : "bg-gray-50 border-gray-200"}`}
+                className={`flex-1 p-3 rounded-lg border transition-colors ${
+                  automationMode === "performance" 
+                    ? "bg-yellow-50 border-yellow-300 text-yellow-700 font-medium" 
+                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                }`}
               >
                 <Zap className="w-4 h-4 mx-auto mb-1" />
-                Vacation Mode
+                Performance
               </button>
             </div>
             <p className="text-sm text-gray-600 mt-3">
-              {automationMode === "saver" ? "Optimizing for peak hours" : "Maximum output"}
+              {automationMode === "saver" 
+                ? "Energy saving & battery priority" 
+                : "Maximum solar production"}
             </p>
           </div>
 
@@ -139,25 +185,39 @@ export default function SOLEdgeDashboard() {
           </div>
 
           {/* Sensors */}
-          <div className="bg-white rounded-xl shadow p-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Sensors</h3>
-            <div className="space-y-3">
-              <SensorItem 
-                name="Temperature"
-                value={`${sensorData.temperature.toFixed(1)}°C`}
-                icon={<Thermometer className="w-5 h-5 text-red-500" />}
-              />
-              <SensorItem 
-                name="Humidity"
-                value={`${sensorData.humidity}%`}
-                icon={<Droplets className="w-5 h-5 text-blue-500" />}
-              />
-              <SensorItem 
-                name="Battery"
-                value={`${sensorData.battery}%`}
-                icon={<BatteryCharging className="w-5 h-5 text-green-500" />}
-              />
-            </div>
+          <div className="bg-white rounded-xl shadow p-5">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Thermometer className="w-5 h-5 text-orange-500" />
+              Live Environment
+            </h3>
+
+            {sensorsError ? (
+              <div className="text-red-600 text-center py-4">
+                {sensorsError}
+              </div>
+            ) : sensorsLoading ? (
+              <div className="text-gray-500 text-center py-4 animate-pulse">
+                Loading sensor data...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <SensorItem 
+                  name="Temperature"
+                  value={sensorData.temperature === "—" ? "—" : `${sensorData.temperature} °C`}
+                  icon={<Thermometer className="w-5 h-5 text-red-500" />}
+                />
+                <SensorItem 
+                  name="Humidity"
+                  value={sensorData.humidity}
+                  icon={<Droplets className="w-5 h-5 text-blue-500" />}
+                />
+                <SensorItem 
+                  name="Battery"
+                  value={`${sensorData.battery}%`}
+                  icon={<BatteryCharging className="w-5 h-5 text-green-500" />}
+                />
+              </div>
+            )}
           </div>
 
           {/* Alerts */}
@@ -167,14 +227,8 @@ export default function SOLEdgeDashboard() {
               Alerts
             </h3>
             <div className="space-y-2">
-              <AlertItem 
-                type="info"
-                message="High solar output predicted"
-              />
-              <AlertItem 
-                type="warning"
-                message="Check gas sensor"
-              />
+              <AlertItem type="info" message="High solar output predicted for next 2 hours" />
+              <AlertItem type="warning" message="Humidity above 80% – check ventilation" />
             </div>
           </div>
         </div>
@@ -183,12 +237,15 @@ export default function SOLEdgeDashboard() {
   );
 }
 
-/* Component: Stat Card */
+/* ────────────────────────────────────────────── */
+/*               Reusable Components              */
+/* ────────────────────────────────────────────── */
+
 function StatCard({ title, value, icon, color }: StatCardProps) {
   return (
-    <div className={`${color} rounded-lg p-4 border`}>
+    <div className={`${color} rounded-lg p-4 border border-gray-200 shadow-sm`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm text-gray-600">{title}</span>
+        <span className="text-sm text-gray-600 font-medium">{title}</span>
         {icon}
       </div>
       <div className="text-xl font-bold text-gray-900">{value}</div>
@@ -196,32 +253,32 @@ function StatCard({ title, value, icon, color }: StatCardProps) {
   );
 }
 
-/* Component: Sensor Item */
 function SensorItem({ name, value, icon }: SensorItemProps) {
   return (
-    <div className="flex items-center justify-between py-2">
+    <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-gray-100">
+        <div className="p-2.5 rounded-lg bg-gray-100">
           {icon}
         </div>
-        <div className="font-medium text-gray-900">{name}</div>
+        <div className="font-medium text-gray-800">{name}</div>
       </div>
-      <div className="font-semibold">{value}</div>
+      <div className={`font-semibold ${value === "—" ? "text-gray-400" : "text-gray-900"}`}>
+        {value}
+      </div>
     </div>
   );
 }
 
-/* Component: Alert Item */
 function AlertItem({ type, message }: AlertItemProps) {
-  const typeConfig = {
-    info: { icon: "ℹ️", color: "bg-blue-50 text-blue-800" },
-    warning: { icon: "⚠️", color: "bg-yellow-50 text-yellow-800" }
+  const config = {
+    info: { icon: "ℹ️", color: "bg-blue-50 text-blue-800 border-blue-200" },
+    warning: { icon: "⚠️", color: "bg-yellow-50 text-yellow-800 border-yellow-200" }
   };
 
   return (
-    <div className={`${typeConfig[type].color} rounded-lg p-3`}>
-      <div className="flex items-start gap-2">
-        <span>{typeConfig[type].icon}</span>
+    <div className={`${config[type].color} rounded-lg p-3 border`}>
+      <div className="flex items-start gap-3">
+        <span className="text-lg">{config[type].icon}</span>
         <p className="text-sm">{message}</p>
       </div>
     </div>
