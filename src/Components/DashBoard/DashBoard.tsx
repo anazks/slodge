@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { db } from '../../Firebase';           
 import { ref, onValue } from 'firebase/database';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged, FirebaseError } from 'firebase/auth';
 
 interface StatCardProps {
   title: string;
@@ -75,7 +75,7 @@ export default function SOLEdgeDashboard() {
             console.log("[Auth] Anonymous sign-in successful → UID:", userCredential.user.uid);
             setAuthStatus('signed-in');
           })
-          .catch((error) => {
+          .catch((error: FirebaseError) => {  // ← typed as FirebaseError
             console.error("[Auth] Anonymous sign-in failed:", error.code, error.message);
             setAuthStatus('error');
             if (error.code === 'auth/operation-not-allowed') {
@@ -110,7 +110,7 @@ export default function SOLEdgeDashboard() {
         temperature: typeof val === 'number' ? val.toFixed(1) : "—"
       }));
       setSensorsLoading(false);
-    }, (err) => {
+    }, (err: FirebaseError) => {           // ← typed as FirebaseError
       console.error("[Firebase] Temperature listener error:", err.code, err.message);
       setSensorsError("Failed to load temperature: " + err.message);
       setSensorsLoading(false);
@@ -124,7 +124,7 @@ export default function SOLEdgeDashboard() {
         humidity: typeof val === 'number' ? Math.round(val) + "%" : "—"
       }));
       setSensorsLoading(false);
-    }, (err) => {
+    }, (err: FirebaseError) => {            // ← typed as FirebaseError
       console.error("[Firebase] Humidity listener error:", err.code, err.message);
       setSensorsError("Failed to load humidity: " + err.message);
       setSensorsLoading(false);
