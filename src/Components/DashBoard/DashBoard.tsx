@@ -7,7 +7,7 @@ import {
 import { db } from '../../Firebase';           
 import { ref, onValue } from 'firebase/database';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { FirebaseError } from 'firebase/app';   // ← Correct import location
+import { FirebaseError } from 'firebase/app';
 
 interface StatCardProps {
   title: string;
@@ -91,7 +91,7 @@ export default function SOLEdgeDashboard() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Firebase listener for temperature & humidity – only after auth is ready
+  // Firebase Realtime Database listeners – only after auth succeeds
   useEffect(() => {
     if (authStatus !== 'signed-in') {
       console.log("[Firebase] Waiting for authentication before starting listeners");
@@ -111,9 +111,10 @@ export default function SOLEdgeDashboard() {
         temperature: typeof val === 'number' ? val.toFixed(1) : "—"
       }));
       setSensorsLoading(false);
-    }, (err: FirebaseError) => {
-      console.error("[Firebase] Temperature listener error:", err.code, err.message);
-      setSensorsError("Failed to load temperature: " + err.message);
+    }, (err: Error) => {
+      const firebaseErr = err as FirebaseError;  // safe type assertion
+      console.error("[Firebase] Temperature listener error:", firebaseErr.code, firebaseErr.message);
+      setSensorsError("Failed to load temperature: " + (firebaseErr.message || "Unknown error"));
       setSensorsLoading(false);
     });
 
@@ -125,9 +126,10 @@ export default function SOLEdgeDashboard() {
         humidity: typeof val === 'number' ? Math.round(val) + "%" : "—"
       }));
       setSensorsLoading(false);
-    }, (err: FirebaseError) => {
-      console.error("[Firebase] Humidity listener error:", err.code, err.message);
-      setSensorsError("Failed to load humidity: " + err.message);
+    }, (err: Error) => {
+      const firebaseErr = err as FirebaseError;
+      console.error("[Firebase] Humidity listener error:", firebaseErr.code, firebaseErr.message);
+      setSensorsError("Failed to load humidity: " + (firebaseErr.message || "Unknown error"));
       setSensorsLoading(false);
     });
 
@@ -196,16 +198,16 @@ export default function SOLEdgeDashboard() {
         }
       } catch (err: any) {
         console.error("[API] Fetch error:", err);
-        const errorMsg = err.message.includes("fetch") 
+        const errorMsg = err.message?.includes("fetch") 
           ? `Cannot reach device at ${deviceIp} – is it online?`
-          : err.message;
+          : (err.message || "Unknown API error");
         setApiError(errorMsg);
       }
     };
 
     fetchPrediction();
 
-    const interval = setInterval(fetchPrediction, 10 * 60 * 1000);
+    const interval = setInterval(fetchPrediction, 10 * 60 * 1000); // 10 minutes
     return () => clearInterval(interval);
   }, [deviceIp, sensorData.temperature, sensorsLoading]);
 
