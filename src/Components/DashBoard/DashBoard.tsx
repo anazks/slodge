@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { db } from '../../Firebase';           
 import { ref, onValue } from 'firebase/database';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
 interface StatCardProps {
   title: string;
@@ -38,6 +39,7 @@ export default function SOLEdgeDashboard() {
   const [sensorsError, setSensorsError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [deviceIp, setDeviceIp] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<'loading' | 'signed-in' | 'error'>('loading');
 
   // Load IP from localStorage
   useEffect(() => {
@@ -58,12 +60,47 @@ export default function SOLEdgeDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Firebase listener for temperature & humidity
+  // Firebase Anonymous Authentication
   useEffect(() => {
+    const auth = getAuth();
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("[Auth] Already signed in (anonymous) → UID:", user.uid);
+        setAuthStatus('signed-in');
+      } else {
+        console.log("[Auth] No user → attempting anonymous sign-in");
+        signInAnonymously(auth)
+          .then((userCredential) => {
+            console.log("[Auth] Anonymous sign-in successful → UID:", userCredential.user.uid);
+            setAuthStatus('signed-in');
+          })
+          .catch((error) => {
+            console.error("[Auth] Anonymous sign-in failed:", error.code, error.message);
+            setAuthStatus('error');
+            if (error.code === 'auth/operation-not-allowed') {
+              setSensorsError("Anonymous authentication is not enabled in Firebase console");
+            } else {
+              setSensorsError("Authentication failed – check console for details");
+            }
+          });
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Firebase listener for temperature & humidity – only after auth is ready
+  useEffect(() => {
+    if (authStatus !== 'signed-in') {
+      console.log("[Firebase] Waiting for authentication before starting listeners");
+      return;
+    }
+
     const tempRef = ref(db, '/sensorData/temperature');
     const humRef  = ref(db, '/sensorData/humidity');
 
-    console.log("[Firebase] Starting listeners for /sensorData/temperature and /sensorData/humidity");
+    console.log("[Firebase] Starting listeners for /sensorData/...");
 
     const unsubscribeTemp = onValue(tempRef, (snapshot) => {
       const val = snapshot.val();
@@ -74,8 +111,8 @@ export default function SOLEdgeDashboard() {
       }));
       setSensorsLoading(false);
     }, (err) => {
-      console.error("[Firebase] Temperature error:", err.message);
-      setSensorsError("Failed to load temperature");
+      console.error("[Firebase] Temperature listener error:", err.code, err.message);
+      setSensorsError("Failed to load temperature: " + err.message);
       setSensorsLoading(false);
     });
 
@@ -88,8 +125,8 @@ export default function SOLEdgeDashboard() {
       }));
       setSensorsLoading(false);
     }, (err) => {
-      console.error("[Firebase] Humidity error:", err.message);
-      setSensorsError("Failed to load humidity");
+      console.error("[Firebase] Humidity listener error:", err.code, err.message);
+      setSensorsError("Failed to load humidity: " + err.message);
       setSensorsLoading(false);
     });
 
@@ -97,7 +134,7 @@ export default function SOLEdgeDashboard() {
       unsubscribeTemp();
       unsubscribeHum();
     };
-  }, []);
+  }, [authStatus]);
 
   // Call prediction API when temperature is available + IP exists
   useEffect(() => {
@@ -118,8 +155,8 @@ export default function SOLEdgeDashboard() {
       return;
     }
 
-    const maxTemp = Number((currentTemp + 3).toFixed(1));   // example offset
-    const minTemp = Number((currentTemp - 5).toFixed(1));   // example offset
+    const maxTemp = Number((currentTemp + 3).toFixed(1));
+    const minTemp = Number((currentTemp - 5).toFixed(1));
 
     console.log(`[API] Preparing request → IP: ${deviceIp}, max_temp: ${maxTemp}, min_temp: ${minTemp}`);
 
@@ -127,7 +164,7 @@ export default function SOLEdgeDashboard() {
       try {
         console.log("[API] Sending POST request to:", `http://${deviceIp}/minimumtemp`);
 
-        const response = await fetch(`${deviceIp}`, {
+        const response = await fetch(`http://${deviceIp}/minimumtemp`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -138,7 +175,7 @@ export default function SOLEdgeDashboard() {
           }),
         });
 
-        console.log("[API] Response status:", response.status, response.statusText);
+        console.log("[API] Response status:", response.status);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -150,17 +187,16 @@ export default function SOLEdgeDashboard() {
 
         if (typeof data.predicted_consumption_kwh === 'number') {
           const value = data.predicted_consumption_kwh.toFixed(2);
-          console.log("[API] Success - Predicted consumption:", value);
+          console.log("[API] Success - Predicted:", value);
           setPredictedConsumption(value);
           setApiError(null);
         } else {
-          console.log("[API] Invalid format - missing predicted_consumption_kwh");
           setApiError("Invalid response format from device");
         }
       } catch (err: any) {
-        console.error("[API] Fetch/Prediction error:", err);
+        console.error("[API] Fetch error:", err);
         const errorMsg = err.message.includes("fetch") 
-          ? `Cannot reach device at ${deviceIp} – check if device is on and endpoint is correct`
+          ? `Cannot reach device at ${deviceIp} – is it online?`
           : err.message;
         setApiError(errorMsg);
       }
@@ -168,9 +204,7 @@ export default function SOLEdgeDashboard() {
 
     fetchPrediction();
 
-    // Refresh every 10 minutes
     const interval = setInterval(fetchPrediction, 10 * 60 * 1000);
-
     return () => clearInterval(interval);
   }, [deviceIp, sensorData.temperature, sensorsLoading]);
 
@@ -291,7 +325,15 @@ export default function SOLEdgeDashboard() {
               Live Environment
             </h3>
 
-            {sensorsError ? (
+            {authStatus === 'loading' ? (
+              <div className="text-gray-500 text-center py-4 animate-pulse">
+                Authenticating...
+              </div>
+            ) : authStatus === 'error' ? (
+              <div className="text-red-600 text-center py-4">
+                {sensorsError || "Authentication issue – check console"}
+              </div>
+            ) : sensorsError ? (
               <div className="text-red-600 text-center py-4">
                 {sensorsError}
               </div>
