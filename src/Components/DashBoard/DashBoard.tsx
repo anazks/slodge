@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { 
   Sun, BatteryCharging, IndianRupee, Leaf, Zap, 
   Thermometer, Droplets, Settings, Activity, Bell,
-  Gauge
+  Gauge, Cloud, Wind, Sunrise, Sunset, Eye
 } from "lucide-react";
 import { db } from '../../Firebase';           
 import { ref, onValue } from 'firebase/database';
@@ -27,6 +27,25 @@ interface AlertItemProps {
   message: string;
 }
 
+interface WeatherData {
+  temp: number;
+  feels_like: number;
+  humidity: number;
+  pressure: number;
+  wind_speed: number;
+  wind_deg: number;
+  weather: Array<{
+    main: string;
+    description: string;
+    icon: string;
+  }>;
+  visibility: number;
+  sunrise: number;
+  sunset: number;
+  uvi: number;
+  clouds: number;
+}
+
 export default function SOLEdgeDashboard() {
   const [automationMode, setAutomationMode] = useState("saver");
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -41,6 +60,23 @@ export default function SOLEdgeDashboard() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [deviceIp, setDeviceIp] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<'loading' | 'signed-in' | 'error'>('loading');
+  
+  // Weather states
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  // OpenWeatherMap API Configuration - Using Current Weather API instead of One Call
+  const API_KEY = "9221cbdf8aaa131c1efc371f8403fca0";
+  // Using Mumbai coordinates - you can change this to your location
+  const CITY = "Mumbai";
+  const COUNTRY = "IN";
+  const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/weather?q=${CITY},${COUNTRY}&units=metric&appid=${API_KEY}`;
+  
+  // Alternative: Using coordinates directly (remove the above line and uncomment below if needed)
+  // const LAT = "19.0760";
+  // const LON = "72.8777";
+  // const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/weather?lat=${LAT}&lon=${LON}&units=metric&appid=${API_KEY}`;
 
   // Load IP from localStorage
   useEffect(() => {
@@ -59,6 +95,60 @@ export default function SOLEdgeDashboard() {
       setCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Fetch weather data
+  useEffect(() => {
+    const fetchWeatherData = async () => {
+      try {
+        setWeatherLoading(true);
+        console.log("[Weather] Fetching weather data from:", WEATHER_API_URL);
+        
+        const response = await fetch(WEATHER_API_URL);
+        
+        console.log("[Weather] Response status:", response.status);
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error("Invalid API key - Please check your OpenWeatherMap API key");
+          }
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log("[Weather] Data received:", data);
+        
+        // Transform data to match our interface
+        setWeatherData({
+          temp: data.main.temp,
+          feels_like: data.main.feels_like,
+          humidity: data.main.humidity,
+          pressure: data.main.pressure,
+          wind_speed: data.wind.speed,
+          wind_deg: data.wind.deg || 0,
+          weather: data.weather,
+          visibility: data.visibility,
+          sunrise: data.sys.sunrise,
+          sunset: data.sys.sunset,
+          uvi: 5, // Default UV index since current weather API doesn't provide this
+          clouds: data.clouds.all
+        });
+        
+        setWeatherError(null);
+      } catch (err: any) {
+        console.error("[Weather] Fetch error:", err);
+        setWeatherError(err.message || "Weather data unavailable");
+      } finally {
+        setWeatherLoading(false);
+      }
+    };
+
+    fetchWeatherData();
+    
+    // Refresh weather every 10 minutes
+    const weatherInterval = setInterval(fetchWeatherData, 10 * 60 * 1000);
+    
+    return () => clearInterval(weatherInterval);
   }, []);
 
   // Firebase Anonymous Authentication
@@ -112,7 +202,7 @@ export default function SOLEdgeDashboard() {
       }));
       setSensorsLoading(false);
     }, (err: Error) => {
-      const firebaseErr = err as FirebaseError;  // safe type assertion
+      const firebaseErr = err as FirebaseError;
       console.error("[Firebase] Temperature listener error:", firebaseErr.code, firebaseErr.message);
       setSensorsError("Failed to load temperature: " + (firebaseErr.message || "Unknown error"));
       setSensorsLoading(false);
@@ -165,9 +255,9 @@ export default function SOLEdgeDashboard() {
 
     const fetchPrediction = async () => {
       try {
-        console.log("[API] Sending POST request to:", `http://${deviceIp}/minimumtemp`);
+        console.log("[API] Sending POST request to:", `${deviceIp}`);
 
-        const response = await fetch(`http://${deviceIp}/minimumtemp`, {
+        const response = await fetch(`${deviceIp}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -207,7 +297,7 @@ export default function SOLEdgeDashboard() {
 
     fetchPrediction();
 
-    const interval = setInterval(fetchPrediction, 10 * 60 * 1000); // 10 minutes
+    const interval = setInterval(fetchPrediction, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [deviceIp, sensorData.temperature, sensorsLoading]);
 
@@ -217,9 +307,24 @@ export default function SOLEdgeDashboard() {
     second: '2-digit'
   });
 
+  // Helper function to get wind direction
+  const getWindDirection = (degrees: number) => {
+    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const index = Math.round(degrees / 22.5) % 16;
+    return directions[index];
+  };
+
+  // Helper function to format time from timestamp
+  const formatTimeFromTimestamp = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
         <header className="mb-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -240,7 +345,7 @@ export default function SOLEdgeDashboard() {
           </div>
 
           {/* Status Bar */}
-          <div className="flex gap-4 items-center bg-white rounded-lg p-3 shadow-sm mt-4">
+          <div className="flex flex-wrap gap-4 items-center bg-white rounded-lg p-3 shadow-sm mt-4">
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${deviceIp ? "bg-green-500" : "bg-red-500"}`}></div>
               <span className="text-sm">
@@ -251,46 +356,166 @@ export default function SOLEdgeDashboard() {
               <Activity className="w-4 h-4 text-purple-500" />
               <span className="text-sm">ML: 94% Accuracy</span>
             </div>
+            {weatherData && (
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-blue-500" />
+                <span className="text-sm capitalize">
+                  {weatherData.weather[0]?.description} • {weatherData.temp.toFixed(1)}°C
+                </span>
+              </div>
+            )}
+            {weatherError && !weatherLoading && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                <span className="text-sm text-red-600">Weather API Error</span>
+              </div>
+            )}
           </div>
         </header>
 
         {/* Main Content */}
         <div className="space-y-6">
-          {/* Automation Mode */}
-          <div className="bg-white rounded-xl shadow p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Automation Mode</h2>
-              <Settings className="w-5 h-5 text-gray-500" />
+          {/* Weather Overview + Automation Mode */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Weather Overview - 2/3 width */}
+            <div className="lg:col-span-2 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow p-5">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-blue-600" />
+                  Current Weather
+                </h2>
+                <span className="text-xs text-gray-500">
+                  {weatherData ? 
+                    `Updated: ${currentTime.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit'})}` : 
+                    "Mumbai, IN"}
+                </span>
+              </div>
+
+              {weatherLoading ? (
+                <div className="text-gray-500 text-center py-8 animate-pulse">
+                  Loading weather data...
+                </div>
+              ) : weatherError ? (
+                <div className="text-center py-8 space-y-3">
+                  <div className="text-amber-600 font-medium">
+                    ⚠️ Weather Service Temporarily Unavailable
+                  </div>
+                  <div className="text-sm text-gray-600 max-w-md mx-auto">
+                    {weatherError}. Showing sample weather data for demonstration.
+                  </div>
+                  {/* Fallback sample data */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                    <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                      <div className="text-xl font-bold text-gray-900">28.5°C</div>
+                      <div className="text-xs text-gray-500">Temperature</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                      <div className="text-xl font-bold text-gray-900">65%</div>
+                      <div className="text-xs text-gray-500">Humidity</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                      <div className="text-xl font-bold text-gray-900">12 km/h</div>
+                      <div className="text-xs text-gray-500">Wind Speed</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                      <div className="text-xl font-bold text-gray-900">Clear</div>
+                      <div className="text-xs text-gray-500">Conditions</div>
+                    </div>
+                  </div>
+                </div>
+              ) : weatherData ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Thermometer className="w-4 h-4 text-red-500" />
+                      <span className="text-sm text-gray-600">Temperature</span>
+                    </div>
+                    <div className="text-xl font-bold text-gray-900">
+                      {weatherData.temp.toFixed(1)}°C
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Feels like {weatherData.feels_like.toFixed(1)}°C
+                    </div>
+                  </div>
+
+                  <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Droplets className="w-4 h-4 text-blue-500" />
+                      <span className="text-sm text-gray-600">Humidity</span>
+                    </div>
+                    <div className="text-xl font-bold text-gray-900">
+                      {weatherData.humidity}%
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {weatherData.humidity > 70 ? 'High' : weatherData.humidity < 30 ? 'Low' : 'Normal'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Wind className="w-4 h-4 text-green-500" />
+                      <span className="text-sm text-gray-600">Wind</span>
+                    </div>
+                    <div className="text-xl font-bold text-gray-900">
+                      {(weatherData.wind_speed * 3.6).toFixed(1)} km/h
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {getWindDirection(weatherData.wind_deg)} • {weatherData.wind_speed.toFixed(1)} m/s
+                    </div>
+                  </div>
+
+                  <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm text-gray-600">Visibility</span>
+                    </div>
+                    <div className="text-xl font-bold text-gray-900">
+                      {weatherData.visibility ? (weatherData.visibility / 1000).toFixed(1) + " km" : "—"}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Pressure: {weatherData.pressure} hPa
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setAutomationMode("saver")}
-                className={`flex-1 p-3 rounded-lg border transition-colors ${
-                  automationMode === "saver" 
-                    ? "bg-green-50 border-green-300 text-green-700 font-medium" 
-                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                }`}
-              >
-                <Leaf className="w-4 h-4 mx-auto mb-1" />
-                Saver
-              </button>
-              <button
-                onClick={() => setAutomationMode("performance")}
-                className={`flex-1 p-3 rounded-lg border transition-colors ${
-                  automationMode === "performance" 
-                    ? "bg-yellow-50 border-yellow-300 text-yellow-700 font-medium" 
-                    : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                }`}
-              >
-                <Zap className="w-4 h-4 mx-auto mb-1" />
-                Performance
-              </button>
+
+            {/* Automation Mode - 1/3 width */}
+            <div className="bg-white rounded-xl shadow p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Automation Mode</h2>
+                <Settings className="w-5 h-5 text-gray-500" />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setAutomationMode("saver")}
+                  className={`flex-1 p-3 rounded-lg border transition-colors ${
+                    automationMode === "saver" 
+                      ? "bg-green-50 border-green-300 text-green-700 font-medium" 
+                      : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  <Leaf className="w-4 h-4 mx-auto mb-1" />
+                  Saver
+                </button>
+                <button
+                  onClick={() => setAutomationMode("performance")}
+                  className={`flex-1 p-3 rounded-lg border transition-colors ${
+                    automationMode === "performance" 
+                      ? "bg-yellow-50 border-yellow-300 text-yellow-700 font-medium" 
+                      : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  <Zap className="w-4 h-4 mx-auto mb-1" />
+                  Performance
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mt-3">
+                {automationMode === "saver" 
+                  ? "Energy saving & battery priority" 
+                  : "Maximum solar production"}
+              </p>
             </div>
-            <p className="text-sm text-gray-600 mt-3">
-              {automationMode === "saver" 
-                ? "Energy saving & battery priority" 
-                : "Maximum solar production"}
-            </p>
           </div>
 
           {/* Energy Stats + Prediction */}
@@ -309,60 +534,140 @@ export default function SOLEdgeDashboard() {
             />
             <StatCard 
               title="Total Savings" 
-              value="₹8,542" 
+              value={predictedConsumption ?  `${(predictedConsumption * 9.20).toFixed(2)} ₹` : "—"}
               icon={<IndianRupee className="w-5 h-5" />} 
               color="bg-green-50"
             />
             <StatCard 
-              title="Predicted Consumption" 
+              title="Predicted Total Consumption" 
               value={predictedConsumption === "—" ? "—" : `${predictedConsumption} kWh`} 
               icon={<Gauge className="w-5 h-5" />} 
               color={apiError ? "bg-red-50" : "bg-indigo-50"}
             />
           </div>
 
-          {/* Sensors */}
-          <div className="bg-white rounded-xl shadow p-5">
-            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Thermometer className="w-5 h-5 text-orange-500" />
-              Live Environment
-            </h3>
+          {/* Sensors + Sun Times */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Sensors - 2/3 width */}
+            <div className="lg:col-span-2 bg-white rounded-xl shadow p-5">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Thermometer className="w-5 h-5 text-orange-500" />
+                Live Environment
+              </h3>
 
-            {authStatus === 'loading' ? (
-              <div className="text-gray-500 text-center py-4 animate-pulse">
-                Authenticating...
-              </div>
-            ) : authStatus === 'error' ? (
-              <div className="text-red-600 text-center py-4">
-                {sensorsError || "Authentication issue – check console"}
-              </div>
-            ) : sensorsError ? (
-              <div className="text-red-600 text-center py-4">
-                {sensorsError}
-              </div>
-            ) : sensorsLoading ? (
-              <div className="text-gray-500 text-center py-4 animate-pulse">
-                Loading sensor data...
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <SensorItem 
-                  name="Temperature"
-                  value={sensorData.temperature === "—" ? "—" : `${sensorData.temperature} °C`}
-                  icon={<Thermometer className="w-5 h-5 text-red-500" />}
-                />
-                <SensorItem 
-                  name="Humidity"
-                  value={sensorData.humidity}
-                  icon={<Droplets className="w-5 h-5 text-blue-500" />}
-                />
-                <SensorItem 
-                  name="Battery"
-                  value={`${sensorData.battery}%`}
-                  icon={<BatteryCharging className="w-5 h-5 text-green-500" />}
-                />
-              </div>
-            )}
+              {authStatus === 'loading' ? (
+                <div className="text-gray-500 text-center py-4 animate-pulse">
+                  Authenticating...
+                </div>
+              ) : authStatus === 'error' ? (
+                <div className="text-red-600 text-center py-4">
+                  {sensorsError || "Authentication issue – check console"}
+                </div>
+              ) : sensorsError ? (
+                <div className="text-red-600 text-center py-4">
+                  {sensorsError}
+                </div>
+              ) : sensorsLoading ? (
+                <div className="text-gray-500 text-center py-4 animate-pulse">
+                  Loading sensor data...
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <SensorItem 
+                    name="Temperature"
+                    value={sensorData.temperature === "—" ? "—" : `${sensorData.temperature} °C`}
+                    icon={<Thermometer className="w-5 h-5 text-red-500" />}
+                  />
+                  <SensorItem 
+                    name="Humidity"
+                    value={sensorData.humidity}
+                    icon={<Droplets className="w-5 h-5 text-blue-500" />}
+                  />
+                  <SensorItem 
+                    name="Battery"
+                    value={`${sensorData.battery}%`}
+                    icon={<BatteryCharging className="w-5 h-5 text-green-500" />}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Sun Times - 1/3 width */}
+            <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl shadow p-5">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Sun className="w-5 h-5 text-orange-500" />
+                Sun Times
+              </h3>
+              {weatherData ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between py-3 border-b border-amber-100">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-amber-100">
+                        <Sunrise className="w-5 h-5 text-orange-500" />
+                      </div>
+                      <div className="font-medium text-gray-800">Sunrise</div>
+                    </div>
+                    <div className="font-semibold text-gray-900">
+                      {formatTimeFromTimestamp(weatherData.sunrise)}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-amber-100">
+                        <Sunset className="w-5 h-5 text-purple-500" />
+                      </div>
+                      <div className="font-medium text-gray-800">Sunset</div>
+                    </div>
+                    <div className="font-semibold text-gray-900">
+                      {formatTimeFromTimestamp(weatherData.sunset)}
+                    </div>
+                  </div>
+                  <div className="mt-4 p-3 bg-white/70 rounded-lg border border-amber-200">
+                    <div className="text-xs text-gray-600 mb-1">Cloud Coverage</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium text-gray-900">
+                        {weatherData.clouds}%
+                      </div>
+                      <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${weatherData.clouds}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : weatherLoading ? (
+                <div className="text-gray-500 text-center py-4 animate-pulse">
+                  Loading sun times...
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Fallback sample sun times */}
+                  <div className="flex items-center justify-between py-3 border-b border-amber-100">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-amber-100">
+                        <Sunrise className="w-5 h-5 text-orange-500" />
+                      </div>
+                      <div className="font-medium text-gray-800">Sunrise</div>
+                    </div>
+                    <div className="font-semibold text-gray-900">06:45 AM</div>
+                  </div>
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-amber-100">
+                        <Sunset className="w-5 h-5 text-purple-500" />
+                      </div>
+                      <div className="font-medium text-gray-800">Sunset</div>
+                    </div>
+                    <div className="font-semibold text-gray-900">06:30 PM</div>
+                  </div>
+                  <div className="mt-4 p-3 bg-white/70 rounded-lg border border-amber-200">
+                    <div className="text-xs text-gray-600">Weather data unavailable</div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Alerts */}
@@ -374,6 +679,18 @@ export default function SOLEdgeDashboard() {
             <div className="space-y-2">
               <AlertItem type="info" message="High solar output predicted for next 2 hours" />
               <AlertItem type="warning" message="Humidity above 80% – check ventilation" />
+              {weatherData && weatherData.uvi > 6 && (
+                <AlertItem 
+                  type="warning" 
+                  message="High UV Index - Consider reducing outdoor solar panel maintenance"
+                />
+              )}
+              {weatherData && weatherData.wind_speed > 5 && (
+                <AlertItem 
+                  type="info" 
+                  message="Moderate wind speed - Good for solar panel cooling"
+                />
+              )}
             </div>
           </div>
 

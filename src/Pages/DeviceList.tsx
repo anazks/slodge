@@ -283,12 +283,13 @@ export default function DeviceList() {
                   disabled={isToggling[device.id] || loading}
                   className={`w-full py-3 px-4 rounded-xl text-white font-medium flex items-center justify-center gap-2 transition-all ${
                     device.isOn
-                      ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
-                      : 'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
+                      ?'bg-green-600 hover:bg-green-700 disabled:bg-green-400'
+                       : 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
+                      
                   } ${isToggling[device.id] ? 'opacity-75 cursor-not-allowed' : ''}`}
                 >
                   <Power className="w-5 h-5" />
-                  {device.isOn ? 'Turn OFF' : 'Turn ON'}
+                  {device.isOn ? 'TURN ON' : 'TURN OFF'}
                   {isToggling[device.id] && '...'}
                 </button>
 
