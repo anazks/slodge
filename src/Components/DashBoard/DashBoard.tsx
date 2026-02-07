@@ -66,17 +66,17 @@ export default function SOLEdgeDashboard() {
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [weatherError, setWeatherError] = useState<string | null>(null);
 
-  // OpenWeatherMap API Configuration - Using Current Weather API instead of One Call
+  // OpenWeatherMap API Configuration
   const API_KEY = "9221cbdf8aaa131c1efc371f8403fca0";
-  // Using Mumbai coordinates - you can change this to your location
   const CITY = "Mumbai";
   const COUNTRY = "IN";
   const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/weather?q=${CITY},${COUNTRY}&units=metric&appid=${API_KEY}`;
-  
-  // Alternative: Using coordinates directly (remove the above line and uncomment below if needed)
-  // const LAT = "19.0760";
-  // const LON = "72.8777";
-  // const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/weather?lat=${LAT}&lon=${LON}&units=metric&appid=${API_KEY}`;
+
+  // Helper to safely convert string to number
+  const safeParseFloat = (str: string): number => {
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
 
   // Load IP from localStorage
   useEffect(() => {
@@ -118,7 +118,6 @@ export default function SOLEdgeDashboard() {
         const data = await response.json();
         console.log("[Weather] Data received:", data);
         
-        // Transform data to match our interface
         setWeatherData({
           temp: data.main.temp,
           feels_like: data.main.feels_like,
@@ -130,7 +129,7 @@ export default function SOLEdgeDashboard() {
           visibility: data.visibility,
           sunrise: data.sys.sunrise,
           sunset: data.sys.sunset,
-          uvi: 5, // Default UV index since current weather API doesn't provide this
+          uvi: 5, // Current weather API doesn't provide UV - using fallback
           clouds: data.clouds.all
         });
         
@@ -145,9 +144,7 @@ export default function SOLEdgeDashboard() {
 
     fetchWeatherData();
     
-    // Refresh weather every 10 minutes
     const weatherInterval = setInterval(fetchWeatherData, 10 * 60 * 1000);
-    
     return () => clearInterval(weatherInterval);
   }, []);
 
@@ -181,7 +178,7 @@ export default function SOLEdgeDashboard() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Firebase Realtime Database listeners – only after auth succeeds
+  // Firebase Realtime Database listeners
   useEffect(() => {
     if (authStatus !== 'signed-in') {
       console.log("[Firebase] Waiting for authentication before starting listeners");
@@ -229,7 +226,7 @@ export default function SOLEdgeDashboard() {
     };
   }, [authStatus]);
 
-  // Call prediction API when temperature is available + IP exists
+  // Call prediction API
   useEffect(() => {
     if (!deviceIp) {
       console.log("[API] Skipping prediction: No device IP set");
@@ -268,7 +265,7 @@ export default function SOLEdgeDashboard() {
           }),
         });
 
-        console.log("[API] Response status:", response.status);
+        console.log("[API] Response status:", response);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -307,14 +304,12 @@ export default function SOLEdgeDashboard() {
     second: '2-digit'
   });
 
-  // Helper function to get wind direction
   const getWindDirection = (degrees: number) => {
     const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
     const index = Math.round(degrees / 22.5) % 16;
     return directions[index];
   };
 
-  // Helper function to format time from timestamp
   const formatTimeFromTimestamp = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleTimeString('en-IN', {
       hour: '2-digit',
@@ -377,7 +372,7 @@ export default function SOLEdgeDashboard() {
         <div className="space-y-6">
           {/* Weather Overview + Automation Mode */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Weather Overview - 2/3 width */}
+            {/* Weather Overview */}
             <div className="lg:col-span-2 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow p-5">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -403,7 +398,6 @@ export default function SOLEdgeDashboard() {
                   <div className="text-sm text-gray-600 max-w-md mx-auto">
                     {weatherError}. Showing sample weather data for demonstration.
                   </div>
-                  {/* Fallback sample data */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                     <div className="bg-white/70 rounded-lg p-4 border border-blue-100">
                       <div className="text-xl font-bold text-gray-900">28.5°C</div>
@@ -480,7 +474,7 @@ export default function SOLEdgeDashboard() {
               ) : null}
             </div>
 
-            {/* Automation Mode - 1/3 width */}
+            {/* Automation Mode */}
             <div className="bg-white rounded-xl shadow p-4">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-gray-900">Automation Mode</h2>
@@ -534,7 +528,9 @@ export default function SOLEdgeDashboard() {
             />
             <StatCard 
               title="Total Savings" 
-              value={predictedConsumption ?  `${(predictedConsumption * 9.20).toFixed(2)} ₹` : "—"}
+              value={predictedConsumption !== "—" 
+                ? `${(safeParseFloat(predictedConsumption) * 9.20).toFixed(2)} ₹` 
+                : "—"}
               icon={<IndianRupee className="w-5 h-5" />} 
               color="bg-green-50"
             />
@@ -548,7 +544,7 @@ export default function SOLEdgeDashboard() {
 
           {/* Sensors + Sun Times */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Sensors - 2/3 width */}
+            {/* Sensors */}
             <div className="lg:col-span-2 bg-white rounded-xl shadow p-5">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <Thermometer className="w-5 h-5 text-orange-500" />
@@ -592,7 +588,7 @@ export default function SOLEdgeDashboard() {
               )}
             </div>
 
-            {/* Sun Times - 1/3 width */}
+            {/* Sun Times */}
             <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl shadow p-5">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <Sun className="w-5 h-5 text-orange-500" />
@@ -643,7 +639,6 @@ export default function SOLEdgeDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Fallback sample sun times */}
                   <div className="flex items-center justify-between py-3 border-b border-amber-100">
                     <div className="flex items-center gap-3">
                       <div className="p-2.5 rounded-lg bg-amber-100">
